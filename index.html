@@ -565,29 +565,38 @@ function checkAnswer() {
 
 function checkPracticeAnswer(ratio) {
   const q = currentChars[currentCharIdx];
-  let coverage;
   if (currentMode === 'trace') {
-    coverage = checkOverlap(q);
+    const coverage = checkOverlap(q);
     if (coverage < 0.15) {
       showResult('💪', 'もう いちど！', 'もじの うえを なぞってね', false);
       return;
     }
+    const stars = hintUsed ? 1 : (coverage > 0.5 ? 3 : coverage > 0.3 ? 2 : 1);
+    totalStars += stars;
+    const titles = ['がんばったね！','いいね！','すばらしい！'];
+    const emojis = ['😊','🎉','🌟'];
+    showResult(emojis[stars-1], titles[stars-1], '⭐'.repeat(stars), true);
+    spawnConfetti();
   } else {
-    coverage = analyzeCoverage(q);
+    const result = analyzeDrawingDetailed(q);
+    if (result.score < 0.20) {
+      showResult('💪', 'もう いちど！', 'もっと ていねいに かいてみよう', false);
+      return;
+    }
+    const stars = hintUsed ? 1 : (result.score > 0.55 ? 3 : result.score > 0.35 ? 2 : 1);
+    totalStars += stars;
+    const titles = ['がんばったね！','いいね！','すばらしい！'];
+    const emojis = ['😊','🎉','🌟'];
+    showResult(emojis[stars-1], titles[stars-1], '⭐'.repeat(stars), true);
+    spawnConfetti();
   }
-  const stars = hintUsed ? 1 : (coverage > 0.5 ? 3 : coverage > 0.3 ? 2 : 1);
-  totalStars += stars;
-  const titles = ['がんばったね！','いいね！','すばらしい！'];
-  const emojis = ['😊','🎉','🌟'];
-  showResult(emojis[stars-1], titles[stars-1], '⭐'.repeat(stars), true);
-  spawnConfetti();
 }
 
 function checkTestAnswer() {
   const q = currentChars[currentCharIdx];
-  const coverage = analyzeCoverage(q);
-  // In test mode: consider correct if coverage > 0.25 (generous for kids)
-  if (coverage > 0.25) {
+  const result = analyzeDrawingDetailed(q);
+  // Test mode: need score >= 0.40 to pass
+  if (result.score >= 0.40) {
     testCorrect++;
     showResult('⭕', 'せいかい！', `「${q.char}」`, true);
     spawnConfetti();
@@ -621,10 +630,15 @@ function checkOverlap(q) {
   return gp > 0 ? ov / gp : 0;
 }
 
-function analyzeCoverage(q) {
+// === High-accuracy character recognition ===
+// Uses 3 metrics: coverage, precision, ink ratio
+function analyzeDrawingDetailed(q) {
   const dpr = window.devicePixelRatio || 1;
+  const w = canvasW * dpr, h = canvasH * dpr;
+
+  // 1. Render reference character with expanded stroke for tolerance
   const tmp = document.createElement('canvas');
-  tmp.width = canvasW*dpr; tmp.height = canvasH*dpr;
+  tmp.width = w; tmp.height = h;
   const ctx = tmp.getContext('2d');
   ctx.scale(dpr, dpr);
   ctx.fillStyle = '#000'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
@@ -637,21 +651,84 @@ function analyzeCoverage(q) {
     ctx.font = `bold ${canvasW*0.7}px 'Hiragino Sans', sans-serif`;
     ctx.fillText(q.char, canvasW/2, canvasH/2);
   }
-  const gs = 8, cw2 = Math.floor(canvasW*dpr/gs), ch2 = Math.floor(canvasH*dpr/gs);
-  const rd = ctx.getImageData(0,0,canvasW*dpr,canvasH*dpr).data;
-  const dd = drawCtx.getImageData(0,0,canvasW*dpr,canvasH*dpr).data;
-  let match = 0, total = 0;
-  for (let gy = 0; gy < gs; gy++) for (let gx = 0; gx < gs; gx++) {
-    let rh = false, dh = false;
-    for (let y = gy*ch2; y < (gy+1)*ch2 && y < canvasH*dpr; y += 3)
-      for (let x = gx*cw2; x < (gx+1)*cw2 && x < canvasW*dpr; x += 3) {
-        const idx = (y * canvasW*dpr + x) * 4 + 3;
-        if (rd[idx] > 30) rh = true;
-        if (dd[idx] > 30) dh = true;
-      }
-    if (rh) { total++; if (dh) match++; }
+
+  // 2. Create dilated (expanded) version for tolerance zone
+  const tmp2 = document.createElement('canvas');
+  tmp2.width = w; tmp2.height = h;
+  const ctx2 = tmp2.getContext('2d');
+  ctx2.scale(dpr, dpr);
+  ctx2.fillStyle = '#000'; ctx2.textAlign = 'center'; ctx2.textBaseline = 'middle';
+  // Draw thicker version with stroke for tolerance
+  if (q.type === 'word') {
+    const n = q.char.length, cw = canvasW / n;
+    const fs = Math.min(cw * 0.7, canvasH * 0.6);
+    ctx2.font = `bold ${fs}px 'Hiragino Sans', sans-serif`;
+    ctx2.lineWidth = 12; ctx2.strokeStyle = '#000';
+    for (let i = 0; i < n; i++) {
+      ctx2.strokeText(q.char[i], cw*i + cw/2, canvasH/2);
+      ctx2.fillText(q.char[i], cw*i + cw/2, canvasH/2);
+    }
+  } else {
+    ctx2.font = `bold ${canvasW*0.7}px 'Hiragino Sans', sans-serif`;
+    ctx2.lineWidth = 16; ctx2.strokeStyle = '#000';
+    ctx2.strokeText(q.char, canvasW/2, canvasH/2);
+    ctx2.fillText(q.char, canvasW/2, canvasH/2);
   }
-  return total > 0 ? match / total : 0;
+
+  const refData = ctx.getImageData(0,0,w,h).data;
+  const tolData = ctx2.getImageData(0,0,w,h).data;
+  const drawData = drawCtx.getImageData(0,0,w,h).data;
+
+  // 3. 16x16 grid analysis
+  const gs = 16;
+  const cw = Math.floor(w/gs), ch = Math.floor(h/gs);
+  let refCells = 0, drawCells = 0;
+  let hitCells = 0;       // cells with both ref & draw (coverage)
+  let tolHitCells = 0;    // draw cells within tolerance zone
+  let missedCells = 0;    // ref cells with no draw
+  let overflowCells = 0;  // draw cells outside tolerance zone
+  let step = 4;
+
+  for (let gy = 0; gy < gs; gy++) for (let gx = 0; gx < gs; gx++) {
+    let hasRef = false, hasDraw = false, hasTol = false;
+    let refCount = 0, drawCount = 0, tolCount = 0;
+    for (let y = gy*ch; y < (gy+1)*ch && y < h; y += step) {
+      for (let x = gx*cw; x < (gx+1)*cw && x < w; x += step) {
+        const idx = (y * w + x) * 4 + 3;
+        if (refData[idx] > 30) { hasRef = true; refCount++; }
+        if (drawData[idx] > 30) { hasDraw = true; drawCount++; }
+        if (tolData[idx] > 30) { hasTol = true; tolCount++; }
+      }
+    }
+    if (hasRef) refCells++;
+    if (hasDraw) drawCells++;
+    if (hasRef && hasDraw) hitCells++;
+    if (hasDraw && hasTol) tolHitCells++;
+    if (hasRef && !hasDraw) missedCells++;
+    if (hasDraw && !hasTol) overflowCells++;
+  }
+
+  // 4. Pixel-level ink ratio
+  let refPixels = 0, drawPixels = 0;
+  for (let i = 3; i < refData.length; i += 4 * step) {
+    if (refData[i] > 30) refPixels++;
+    if (drawData[i] > 30) drawPixels++;
+  }
+
+  // 5. Calculate scores
+  const coverage = refCells > 0 ? hitCells / refCells : 0;
+  const precision = drawCells > 0 ? tolHitCells / drawCells : 0;
+  const inkRatio = refPixels > 0 ? drawPixels / refPixels : 0;
+  // Ink should be roughly 0.15 ~ 2.5x of reference (pen strokes are thinner than filled text)
+  const inkPenalty = (inkRatio < 0.05 || inkRatio > 4.0) ? 0.3 : 1.0;
+
+  // Combined score: coverage * precision * ink penalty
+  // coverage: did you write in the right places?
+  // precision: did you NOT write in wrong places?
+  // inkPenalty: is the amount of ink reasonable?
+  const score = coverage * 0.45 + precision * 0.45 + (inkPenalty === 1.0 ? 0.10 : 0);
+
+  return { score, coverage, precision, inkRatio };
 }
 
 // ===== Results =====
