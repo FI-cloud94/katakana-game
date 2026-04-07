@@ -578,12 +578,15 @@ function checkPracticeAnswer(ratio) {
     showResult(emojis[stars-1], titles[stars-1], '⭐'.repeat(stars), true);
     spawnConfetti();
   } else {
-    const result = analyzeDrawingDetailed(q);
-    if (result.score < 0.12) {
-      showResult('💪', 'もう いちど！', 'もっと ていねいに かいてみよう', false);
+    const ranked = recognizeChar();
+    const rank = ranked.findIndex(r => r.char === q.char);
+    const topCorr = ranked[0] ? ranked[0].corr : 0;
+    if (rank < 0 || rank > 4 || topCorr < 0.10) {
+      const guessed = ranked[0] ? ranked[0].char : '?';
+      showResult('💪', 'もう いちど！', `「${guessed}」に みえるよ…\n「${q.char}」を かいてね`, false);
       return;
     }
-    const stars = hintUsed ? 1 : (result.score > 0.30 ? 3 : result.score > 0.18 ? 2 : 1);
+    const stars = hintUsed ? 1 : (rank === 0 ? 3 : rank <= 1 ? 2 : 1);
     totalStars += stars;
     const titles = ['がんばったね！','いいね！','すばらしい！'];
     const emojis = ['😊','🎉','🌟'];
@@ -594,16 +597,46 @@ function checkPracticeAnswer(ratio) {
 
 function checkTestAnswer() {
   const q = currentChars[currentCharIdx];
-  const result = analyzeDrawingDetailed(q);
-  // Test mode: score >= 0.20 (rejects scribbles & wrong chars, passes correct)
-  if (result.score >= 0.20) {
+  const result = recognizeChar();
+  // Test mode: correct char must be in top 3 matches AND have min correlation
+  const rank = result.findIndex(r => r.char === q.char);
+  const topCorr = result[0] ? result[0].corr : 0;
+  if (rank >= 0 && rank <= 2 && topCorr >= 0.15) {
     testCorrect++;
     showResult('⭕', 'せいかい！', `「${q.char}」`, true);
     spawnConfetti();
   } else {
     testWrong.push(q);
-    showResult('❌', 'ざんねん…', `こたえは「${q.char}」`, true);
+    const guessed = result[0] ? result[0].char : '?';
+    showResult('❌', 'ざんねん…', `こたえは「${q.char}」\n（「${guessed}」に みえたよ）`, true);
   }
+}
+
+// Recognize: compare drawing against ALL katakana using raw bitmap correlation
+function recognizeChar() {
+  const drawBM = getDrawingBitmap(RECOG_SIZE);
+  const drawInk = drawBM.reduce((a,b) => a+b, 0);
+  if (drawInk < RECOG_SIZE * 0.3) return [];
+
+  const allChars = KATAKANA_GROUPS.flatMap(g => g.chars.map(c => c[0]));
+  const scores = allChars.map(c => {
+    const refBM = getCharBitmap(c, 'char');
+    return { char: c, corr: pearsonCorr(refBM, drawBM) };
+  });
+  scores.sort((a,b) => b.corr - a.corr);
+  return scores;
+}
+
+// Cache for reference bitmaps
+let _charBMCache = {};
+let _bmCacheAspect = 0;
+function getCharBitmap(char, type) {
+  const aspect = Math.round(canvasW / canvasH * 100);
+  if (aspect !== _bmCacheAspect) { _charBMCache = {}; _bmCacheAspect = aspect; }
+  if (_charBMCache[char]) return _charBMCache[char];
+  const bm = renderCharBitmap(char, type, RECOG_SIZE);
+  _charBMCache[char] = bm;
+  return bm;
 }
 
 function skipQuestion() {
@@ -631,116 +664,8 @@ function checkOverlap(q) {
 }
 
 // ====== Character Recognition Engine ======
-// Uses edge+zone+projection features with Pearson correlation.
-// User drawing is dilated (thickened) to match font stroke width.
+// 32x32 bitmap correlation with dilation for pen stroke matching
 const RECOG_SIZE = 32;
-
-function analyzeDrawingDetailed(q) {
-  // 1. Get user's drawing as dilated bitmap → feature vector
-  const drawBM = getDrawingBitmap(RECOG_SIZE);
-  const drawInk = drawBM.reduce((a,b) => a+b, 0);
-  if (drawInk < RECOG_SIZE * 0.3) return { score: 0, corr: 0 };
-  const drawFeat = extractFeatures(drawBM, RECOG_SIZE);
-
-  // 2. Get correct character's feature vector
-  const refFeat = getCharFeatures(q.char, q.type);
-  const corr = pearsonCorr(refFeat, drawFeat);
-
-  // 3. Compare against sample of wrong characters
-  const allChars = KATAKANA_GROUPS.flatMap(g => g.chars.map(c => c[0]));
-  let bestWrong = -1;
-  const others = allChars.filter(c => c !== q.char);
-  // Test 25 random wrong chars
-  for (let i = others.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random()*(i+1));
-    [others[i],others[j]] = [others[j],others[i]];
-  }
-  const sample = others.slice(0, 25);
-  for (const wc of sample) {
-    const wf = getCharFeatures(wc, 'char');
-    const wCorr = pearsonCorr(wf, drawFeat);
-    if (wCorr > bestWrong) bestWrong = wCorr;
-  }
-
-  // 4. Score: weighted combination of absolute correlation + margin
-  const margin = corr - bestWrong;
-  const score = corr * 0.55 + Math.max(0, margin) * 0.45;
-
-  return { score, corr: corr, bestWrong, margin };
-}
-
-// Cache for reference character features (keyed by char + canvas aspect)
-let _charFeatCache = {};
-let _cacheAspect = 0;
-function getCharFeatures(char, type) {
-  const aspect = Math.round(canvasW / canvasH * 100);
-  if (aspect !== _cacheAspect) { _charFeatCache = {}; _cacheAspect = aspect; }
-  if (_charFeatCache[char]) return _charFeatCache[char];
-  const bm = renderCharBitmap(char, type, RECOG_SIZE);
-  const feat = extractFeatures(bm, RECOG_SIZE);
-  _charFeatCache[char] = feat;
-  return feat;
-}
-
-// Extract multi-scale features from a bitmap
-function extractFeatures(bm, size) {
-  const feat = [];
-
-  // 1. Edge magnitude map (Sobel-like) — captures stroke shape
-  for (let y = 1; y < size-1; y++) {
-    for (let x = 1; x < size-1; x++) {
-      const gx = bm[y*size+x+1] - bm[y*size+x-1];
-      const gy = bm[(y+1)*size+x] - bm[(y-1)*size+x];
-      feat.push(Math.sqrt(gx*gx + gy*gy));
-    }
-  }
-
-  // 2. 4x4 zone density — captures spatial distribution
-  const zs = size / 4;
-  for (let zy = 0; zy < 4; zy++) {
-    for (let zx = 0; zx < 4; zx++) {
-      let s = 0, c = 0;
-      for (let y = zy*zs; y < (zy+1)*zs; y++) {
-        for (let x = zx*zs; x < (zx+1)*zs; x++) {
-          s += bm[y*size+x]; c++;
-        }
-      }
-      feat.push(c > 0 ? s/c * 3 : 0); // weight zones higher
-    }
-  }
-
-  // 3. Horizontal & vertical projection profiles — captures structure
-  for (let y = 0; y < size; y++) {
-    let s = 0;
-    for (let x = 0; x < size; x++) s += bm[y*size+x];
-    feat.push(s / size * 2);
-  }
-  for (let x = 0; x < size; x++) {
-    let s = 0;
-    for (let y = 0; y < size; y++) s += bm[y*size+x];
-    feat.push(s / size * 2);
-  }
-
-  // 4. Diagonal projections (↘ and ↗) — helps distinguish ノ vs ン etc.
-  for (let d = -(size-1); d < size; d += 2) {
-    let s = 0, c = 0;
-    for (let x = 0; x < size; x++) {
-      const y = x + d;
-      if (y >= 0 && y < size) { s += bm[y*size+x]; c++; }
-    }
-    feat.push(c > 0 ? s/c * 2 : 0);
-  }
-  for (let d = 0; d < 2*size-1; d += 2) {
-    let s = 0, c = 0;
-    for (let x = 0; x < size; x++) {
-      const y = d - x;
-      if (y >= 0 && y < size) { s += bm[y*size+x]; c++; }
-    }
-    feat.push(c > 0 ? s/c * 2 : 0);
-  }
-
-  return new Float32Array(feat);
-}
 
 // Get user's drawing as a dilated (thickened) bitmap
 function getDrawingBitmap(size) {
