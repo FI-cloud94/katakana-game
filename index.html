@@ -114,7 +114,13 @@ html,body{width:100%;height:100%;overflow:hidden;font-family:'Hiragino Sans','Hi
 .vcol{display:flex;flex-direction:column;align-items:center;gap:8px;padding:22px 56px;background:#fff;border-radius:20px;box-shadow:0 4px 20px rgba(0,0,0,.08);min-height:280px}
 .vchar{font-size:42px;font-family:'Hiragino Mincho ProN','YuMincho','Yu Mincho',serif;line-height:1.15;color:#333;position:relative;text-align:center}
 .vchar.target{color:#e74c3c;font-weight:700}
-.vchar .ruby{position:absolute;left:100%;top:50%;transform:translateY(-50%);display:flex;flex-direction:column;align-items:center;gap:2px;font-size:22px;color:#555;margin-left:10px;line-height:1.1;font-weight:600;font-family:'Hiragino Sans',sans-serif}
+/* 読みテスト: 対象行を横並び（漢字 + 手書きスロット + 正解）にする */
+.vchar.target.read-target{display:flex;flex-direction:row;align-items:center;justify-content:center;gap:12px;min-height:0}
+.vchar.target.read-target .kchar{font-size:52px;color:#e74c3c;font-weight:700;line-height:1;font-family:'Hiragino Mincho ProN','YuMincho',serif}
+.vchar.target .rslots{display:flex;flex-direction:column;gap:4px}
+.vchar.target .rslot{width:56px;height:56px;border:2px dashed #667eea;border-radius:10px;background:#fafcff;position:relative;flex-shrink:0}
+.vchar.target .rslot canvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none;border-radius:8px}
+.vchar.target .read-ans{display:flex;flex-direction:column;align-items:center;gap:4px;font-size:38px;color:#e74c3c;font-weight:700;line-height:1.1;font-family:'Hiragino Sans',sans-serif}
 .vslot{width:110px;height:110px;border:3px dashed #667eea;border-radius:14px;background:#fafcff;position:relative;margin:4px 0;flex-shrink:0}
 .vslot canvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none;border-radius:12px}
 .vslot .slot-side{position:absolute;left:100%;top:50%;transform:translateY(-50%);margin-left:14px;display:flex;flex-direction:row;align-items:flex-start;gap:10px}
@@ -473,7 +479,6 @@ function startTest(type) {
 
 // ===== Kanji Test =====
 let kanjiAnswerShown = false;
-let slotCanvas = null, slotCtx = null, slotDrawing = false, slotLastX = 0, slotLastY = 0;
 
 function openKanjiTest() {
   showScreen('kanjiTestSelect');
@@ -509,10 +514,24 @@ function renderKanjiSentence(q, mode) {
     vcol.appendChild(d);
   }
   if (mode === 'kanji-read') {
-    const d = document.createElement('div');
-    d.className = 'vchar target';
-    d.textContent = q.char;
-    vcol.appendChild(d);
+    // 対象行は [漢字] [手書きスロット×n] [正解(後で)] の横並び
+    const row = document.createElement('div');
+    row.className = 'vchar target read-target';
+    const kchar = document.createElement('div');
+    kchar.className = 'kchar';
+    kchar.textContent = q.char;
+    row.appendChild(kchar);
+    const slots = document.createElement('div');
+    slots.className = 'rslots';
+    for (let i = 0; i < q.reading.length; i++) {
+      const rs = document.createElement('div');
+      rs.className = 'rslot';
+      const cv = document.createElement('canvas');
+      rs.appendChild(cv);
+      slots.appendChild(rs);
+    }
+    row.appendChild(slots);
+    vcol.appendChild(row);
   } else {
     const slot = document.createElement('div');
     slot.className = 'vslot';
@@ -543,16 +562,16 @@ function renderKanjiSentence(q, mode) {
 // 正解を漢字の横に表示（ユーザーの書き込みはそのまま残る）
 function revealKanjiAnswer(q, mode) {
   if (mode === 'kanji-read') {
-    const target = document.querySelector('#kanjiVcol .vchar.target');
-    if (target && !target.querySelector('.ruby')) {
-      const rb = document.createElement('div');
-      rb.className = 'ruby';
+    const row = document.querySelector('#kanjiVcol .vchar.target.read-target');
+    if (row && !row.querySelector('.read-ans')) {
+      const ans = document.createElement('div');
+      ans.className = 'read-ans';
       for (const ch of q.reading) {
         const d = document.createElement('div');
         d.textContent = ch;
-        rb.appendChild(d);
+        ans.appendChild(d);
       }
-      target.appendChild(rb);
+      row.appendChild(ans);
     }
   } else {
     const side = document.querySelector('#kanjiVcol .vslot .slot-side');
@@ -567,50 +586,53 @@ function revealKanjiAnswer(q, mode) {
   }
 }
 
-// インラインの⬜キャンバスに描画するための簡易ドローイング
-function initSlotCanvas() {
-  slotCanvas = document.querySelector('#kanjiVcol .vslot canvas');
-  if (!slotCanvas) return;
-  const rect = slotCanvas.getBoundingClientRect();
+// インラインの⬜キャンバスに描画する（複数キャンバス対応）
+function setupSlotCanvas(cv) {
+  const rect = cv.getBoundingClientRect();
   const dpr = window.devicePixelRatio || 1;
-  slotCanvas.width = Math.max(1, Math.round(rect.width * dpr));
-  slotCanvas.height = Math.max(1, Math.round(rect.height * dpr));
-  slotCtx = slotCanvas.getContext('2d');
-  slotCtx.scale(dpr, dpr);
-  slotCtx.lineCap = 'round';
-  slotCtx.lineJoin = 'round';
-  slotCtx.lineWidth = 5;
-  slotCtx.strokeStyle = '#333';
-  slotCanvas.onpointerdown = slotPointerDown;
-  slotCanvas.onpointermove = slotPointerMove;
-  slotCanvas.onpointerup = slotCanvas.onpointercancel = slotPointerUp;
+  cv.width = Math.max(1, Math.round(rect.width * dpr));
+  cv.height = Math.max(1, Math.round(rect.height * dpr));
+  const ctx = cv.getContext('2d');
+  ctx.scale(dpr, dpr);
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.lineWidth = 4;
+  ctx.strokeStyle = '#333';
+  cv.__ctx = ctx;
+  let drawing = false, lastX = 0, lastY = 0;
+  cv.onpointerdown = (e) => {
+    e.preventDefault();
+    drawing = true;
+    const r = cv.getBoundingClientRect();
+    lastX = e.clientX - r.left;
+    lastY = e.clientY - r.top;
+    if (e.pressure > 0) ctx.lineWidth = Math.max(2, Math.min(8, e.pressure * 8));
+  };
+  cv.onpointermove = (e) => {
+    if (!drawing) return;
+    e.preventDefault();
+    const r = cv.getBoundingClientRect();
+    const x = e.clientX - r.left;
+    const y = e.clientY - r.top;
+    if (e.pressure > 0) ctx.lineWidth = Math.max(2, Math.min(8, e.pressure * 8));
+    ctx.beginPath();
+    ctx.moveTo(lastX, lastY);
+    ctx.lineTo(x, y);
+    ctx.stroke();
+    lastX = x; lastY = y;
+  };
+  cv.onpointerup = cv.onpointercancel = () => { drawing = false; };
 }
-function slotGetPos(e) {
-  const r = slotCanvas.getBoundingClientRect();
-  return { x: e.clientX - r.left, y: e.clientY - r.top };
+function setupAllSlots() {
+  document.querySelectorAll('#kanjiVcol canvas').forEach(cv => setupSlotCanvas(cv));
 }
-function slotPointerDown(e) {
-  e.preventDefault();
-  slotDrawing = true;
-  const p = slotGetPos(e);
-  slotLastX = p.x; slotLastY = p.y;
-  if (e.pressure > 0) slotCtx.lineWidth = Math.max(3, Math.min(10, e.pressure * 10));
-}
-function slotPointerMove(e) {
-  if (!slotDrawing) return;
-  e.preventDefault();
-  const p = slotGetPos(e);
-  if (e.pressure > 0) slotCtx.lineWidth = Math.max(3, Math.min(10, e.pressure * 10));
-  slotCtx.beginPath();
-  slotCtx.moveTo(slotLastX, slotLastY);
-  slotCtx.lineTo(p.x, p.y);
-  slotCtx.stroke();
-  slotLastX = p.x; slotLastY = p.y;
-}
-function slotPointerUp() { slotDrawing = false; }
-function clearSlotCanvas() {
-  if (!slotCtx || !slotCanvas) return;
-  slotCtx.clearRect(0, 0, slotCanvas.width, slotCanvas.height);
+function clearAllSlotCanvases() {
+  document.querySelectorAll('#kanjiVcol canvas').forEach(cv => {
+    if (cv.__ctx) {
+      const dpr = window.devicePixelRatio || 1;
+      cv.__ctx.clearRect(0, 0, cv.width / dpr, cv.height / dpr);
+    }
+  });
 }
 
 function shuffle(arr) {
@@ -685,8 +707,8 @@ function onPointerUp() {
   currentStroke = [];
 }
 function clearCanvas() {
-  if (currentMode === 'kanji-write') {
-    clearSlotCanvas();
+  if (currentMode === 'kanji-write' || currentMode === 'kanji-read') {
+    clearAllSlotCanvases();
     return;
   }
   drawCtx.clearRect(0, 0, canvasW, canvasH); strokes = []; currentStroke = [];
@@ -770,7 +792,7 @@ function loadQuestion() {
     kanjiAnswerShown = false;
     document.getElementById('gamePrompt').textContent =
       currentMode === 'kanji-read'
-        ? 'よみかたを かんがえよう'
+        ? '⬜に よみかたを かこう'
         : '⬜に かんじを かこう';
     document.getElementById('gameTarget').textContent = '';
     document.getElementById('gameTarget').className = 'game-target';
@@ -782,12 +804,10 @@ function loadQuestion() {
     document.getElementById('checkBtn').style.display = 'none';
     document.getElementById('hintBtn').style.display = 'none';
     document.getElementById('skipBtn').style.display = 'none';
-    document.getElementById('clearBtn').style.display = (currentMode === 'kanji-write') ? '' : 'none';
+    document.getElementById('clearBtn').style.display = '';
     document.getElementById('nextBtn').style.display = '';
     document.getElementById('nextBtn').textContent = 'つぎへ →';
-    if (currentMode === 'kanji-write') {
-      setTimeout(() => initSlotCanvas(), 30);
-    }
+    setTimeout(() => setupAllSlots(), 30);
     return;
   }
 
