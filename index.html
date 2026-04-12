@@ -107,6 +107,11 @@ html,body{width:100%;height:100%;overflow:hidden;font-family:'Hiragino Sans','Hi
 @keyframes confetti{0%{transform:translateY(0) rotate(0);opacity:1}100%{transform:translateY(-200px) rotate(720deg);opacity:0}}
 .bounce-in{animation:bounceIn .5s ease-out}
 .confetti-particle{position:fixed;width:10px;height:10px;border-radius:50%;z-index:200;animation:confetti 1.5s ease-out forwards;pointer-events:none}
+
+/* Kanji Choices */
+.kanji-choices{display:grid;grid-template-columns:1fr 1fr;gap:12px;width:min(90vw,420px);margin:16px auto 0}
+.kanji-choice-btn{padding:22px 16px;border:3px solid #667eea;border-radius:16px;font-size:26px;font-weight:700;cursor:pointer;background:#fff;color:#333;box-shadow:0 3px 10px rgba(0,0,0,.1);transition:transform .12s,background .15s}
+.kanji-choice-btn:active{transform:scale(.94);background:#667eea;color:#fff}
 </style>
 </head>
 <body>
@@ -117,6 +122,7 @@ html,body{width:100%;height:100%;overflow:hidden;font-family:'Hiragino Sans','Hi
   <p class="subtitle">れんしゅうしよう！</p>
   <button class="menu-btn btn-practice" onclick="openPractice()">📝 れんしゅうモード</button>
   <button class="menu-btn btn-test" onclick="openTestSelect()">🏆 テストモード</button>
+  <button class="menu-btn" style="background:#fdcb6e;color:#333" onclick="openKanjiTest()">✏️ かんじテスト（1ねん）</button>
 </div>
 
 <!-- Level Select (Practice) -->
@@ -136,6 +142,17 @@ html,body{width:100%;height:100%;overflow:hidden;font-family:'Hiragino Sans','Hi
   <button class="back-btn" onclick="showScreen('home')">🏠 もどる</button>
 </div>
 
+<!-- Kanji Test Select -->
+<div id="kanjiTestSelect" class="screen">
+  <h2>✏️ かんじテスト（1ねん）</h2>
+  <p class="test-desc">1ねんせいの かんじ 80もんから しゅつだい<br>20もん中 18もん せいかいで ごうかく！</p>
+  <div class="test-grid">
+    <button class="test-card" style="background:#74b9ff" onclick="startKanjiTest('kanji-read')"><span class="test-emoji">👀</span>よみテスト<span class="test-badge">20もん</span></button>
+    <button class="test-card" style="background:#fd79a8" onclick="startKanjiTest('kanji-write')"><span class="test-emoji">✏️</span>かきテスト<span class="test-badge">20もん</span></button>
+  </div>
+  <button class="back-btn" onclick="showScreen('home')">🏠 もどる</button>
+</div>
+
 <!-- Game -->
 <div id="game" class="screen">
   <div class="game-header">
@@ -152,6 +169,7 @@ html,body{width:100%;height:100%;overflow:hidden;font-family:'Hiragino Sans','Hi
     <canvas class="canvas-guide" id="guideCanvas"></canvas>
     <canvas id="drawCanvas"></canvas>
   </div>
+  <div class="kanji-choices" id="kanjiChoices" style="display:none"></div>
   <div class="game-buttons" id="gameButtons">
     <button class="game-btn btn-clear" onclick="clearCanvas()">けす</button>
     <button class="game-btn btn-hint" id="hintBtn" onclick="showHint()">ヒント</button>
@@ -219,6 +237,26 @@ const WORD_LEVELS = [
 ];
 
 const ALL_KATAKANA = KATAKANA_GROUPS.flatMap(g => g.chars);
+
+// 1年生 常用漢字 80字
+const KANJI_DATA = [
+  {k:'一',r:'いち'},{k:'二',r:'に'},{k:'三',r:'さん'},{k:'四',r:'し'},{k:'五',r:'ご'},
+  {k:'六',r:'ろく'},{k:'七',r:'しち'},{k:'八',r:'はち'},{k:'九',r:'きゅう'},{k:'十',r:'じゅう'},
+  {k:'百',r:'ひゃく'},{k:'千',r:'せん'},{k:'上',r:'うえ'},{k:'下',r:'した'},{k:'左',r:'ひだり'},
+  {k:'右',r:'みぎ'},{k:'中',r:'なか'},{k:'大',r:'だい'},{k:'小',r:'しょう'},{k:'月',r:'つき'},
+  {k:'日',r:'ひ'},{k:'年',r:'ねん'},{k:'早',r:'はや'},{k:'木',r:'き'},{k:'林',r:'はやし'},
+  {k:'森',r:'もり'},{k:'山',r:'やま'},{k:'川',r:'かわ'},{k:'土',r:'つち'},{k:'空',r:'そら'},
+  {k:'田',r:'た'},{k:'天',r:'てん'},{k:'生',r:'せい'},{k:'花',r:'はな'},{k:'草',r:'くさ'},
+  {k:'虫',r:'むし'},{k:'犬',r:'いぬ'},{k:'人',r:'ひと'},{k:'名',r:'な'},{k:'女',r:'おんな'},
+  {k:'男',r:'おとこ'},{k:'子',r:'こ'},{k:'目',r:'め'},{k:'耳',r:'みみ'},{k:'口',r:'くち'},
+  {k:'手',r:'て'},{k:'足',r:'あし'},{k:'見',r:'みる'},{k:'音',r:'おと'},{k:'力',r:'ちから'},
+  {k:'気',r:'き'},{k:'円',r:'えん'},{k:'入',r:'はいる'},{k:'出',r:'でる'},{k:'立',r:'たつ'},
+  {k:'休',r:'やすむ'},{k:'先',r:'さき'},{k:'夕',r:'ゆう'},{k:'本',r:'ほん'},{k:'文',r:'ぶん'},
+  {k:'字',r:'じ'},{k:'学',r:'がく'},{k:'校',r:'こう'},{k:'村',r:'むら'},{k:'町',r:'まち'},
+  {k:'正',r:'ただ'},{k:'水',r:'みず'},{k:'火',r:'ひ'},{k:'玉',r:'たま'},{k:'王',r:'おう'},
+  {k:'石',r:'いし'},{k:'竹',r:'たけ'},{k:'糸',r:'いと'},{k:'貝',r:'かい'},{k:'車',r:'くるま'},
+  {k:'金',r:'かね'},{k:'雨',r:'あめ'},{k:'赤',r:'あか'},{k:'青',r:'あお'},{k:'白',r:'しろ'},
+];
 
 // ===== State =====
 let currentMode = ''; // trace, copy, quiz, word, test-char, test-word
@@ -358,6 +396,85 @@ function startTest(type) {
   setTimeout(() => { initCanvas(); loadQuestion(); }, 50);
 }
 
+// ===== Kanji Test =====
+function openKanjiTest() {
+  showScreen('kanjiTestSelect');
+}
+
+function startKanjiTest(type) {
+  testType = type;
+  isTestMode = true;
+  testCorrect = 0;
+  testWrong = [];
+  currentCharIdx = 0;
+  lastTestConfig = type;
+  currentMode = type;
+  const pool = KANJI_DATA.slice();
+  shuffle(pool);
+  currentChars = pool.slice(0, 20).map(d => ({ char: d.k, reading: d.r, type: type }));
+  showScreen('game');
+  document.getElementById('canvasArea').classList.remove('word-mode');
+  setTimeout(() => {
+    if (type === 'kanji-write') initCanvas();
+    loadQuestion();
+  }, 50);
+}
+
+function renderKanjiChoices(q) {
+  const container = document.getElementById('kanjiChoices');
+  container.innerHTML = '';
+  const others = [...new Set(KANJI_DATA.filter(d => d.r !== q.reading).map(d => d.r))];
+  shuffle(others);
+  const choices = [q.reading, ...others.slice(0, 3)];
+  shuffle(choices);
+  choices.forEach(reading => {
+    const btn = document.createElement('button');
+    btn.className = 'kanji-choice-btn';
+    btn.textContent = reading;
+    btn.onclick = () => checkKanjiRead(reading, q);
+    container.appendChild(btn);
+  });
+}
+
+function checkKanjiRead(chosen, q) {
+  if (chosen === q.reading) {
+    testCorrect++;
+    showResult('⭕', 'せいかい！', `${q.char} → ${q.reading}`, true);
+    spawnConfetti();
+  } else {
+    testWrong.push(q);
+    showResult('❌', 'ざんねん…', `${q.char} は「${q.reading}」`, true);
+  }
+}
+
+function checkKanjiWrite() {
+  const q = currentChars[currentCharIdx];
+  const result = recognizeKanji();
+  const rank = result.findIndex(r => r.char === q.char);
+  const topCorr = result[0] ? result[0].corr : 0;
+  if (rank >= 0 && rank <= 2 && topCorr >= 0.15) {
+    testCorrect++;
+    showResult('⭕', 'せいかい！', `${q.char}（${q.reading}）`, true);
+    spawnConfetti();
+  } else {
+    testWrong.push(q);
+    const guessed = result[0] ? result[0].char : '?';
+    showResult('❌', 'ざんねん…', `こたえは「${q.char}」\n（「${guessed}」に みえたよ）`, true);
+  }
+}
+
+function recognizeKanji() {
+  const drawBM = getDrawingBitmap(RECOG_SIZE);
+  const drawInk = drawBM.reduce((a,b) => a+b, 0);
+  if (drawInk < RECOG_SIZE * 0.3) return [];
+  const scores = KANJI_DATA.map(d => {
+    const refBM = getCharBitmap(d.k, 'char');
+    return { char: d.k, corr: pearsonCorr(refBM, drawBM) };
+  });
+  scores.sort((a,b) => b.corr - a.corr);
+  return scores;
+}
+
 function shuffle(arr) {
   for (let i = arr.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -472,11 +589,16 @@ function drawWordGuide(word, opacity) {
 
 // ===== Load Question =====
 function loadQuestion() {
-  clearCanvas();
+  if (drawCtx) clearCanvas();
   hintUsed = false;
   const q = currentChars[currentCharIdx];
   const total = currentChars.length;
   document.getElementById('progress').textContent = `${currentCharIdx+1} / ${total}`;
+
+  // Reset layout visibility
+  document.getElementById('canvasArea').style.display = '';
+  document.getElementById('gameButtons').style.display = '';
+  document.getElementById('kanjiChoices').style.display = 'none';
 
   // Stars vs Test score display
   const starsEl = document.getElementById('starsDisplay');
@@ -500,6 +622,33 @@ function loadQuestion() {
 
   const isWord = q.type === 'word';
   document.getElementById('canvasArea').classList.toggle('word-mode', isWord);
+
+  // Kanji reading test: show multiple choice, hide canvas
+  if (currentMode === 'kanji-read') {
+    document.getElementById('gamePrompt').textContent = 'よみかたは どれ？';
+    document.getElementById('gameTarget').textContent = q.char;
+    document.getElementById('gameTarget').className = 'game-target';
+    document.getElementById('gameReading').textContent = '';
+    document.getElementById('canvasArea').style.display = 'none';
+    document.getElementById('gameButtons').style.display = 'none';
+    document.getElementById('kanjiChoices').style.display = '';
+    renderKanjiChoices(q);
+    return;
+  }
+
+  // Kanji writing test: show reading as prompt, use canvas
+  if (currentMode === 'kanji-write') {
+    document.getElementById('gamePrompt').textContent = 'かんじで かこう！';
+    document.getElementById('gameTarget').textContent = q.reading;
+    document.getElementById('gameTarget').className = 'game-target';
+    document.getElementById('gameReading').textContent = '';
+    document.getElementById('hintBtn').style.display = 'none';
+    setTimeout(() => {
+      initCanvas();
+      setTimeout(() => drawGuide('', 0), 20);
+    }, 10);
+    return;
+  }
 
   if (isWord) {
     document.getElementById('gamePrompt').textContent = `「${q.reading}」を カタカナで かこう！`;
@@ -556,7 +705,9 @@ function checkAnswer() {
     return;
   }
 
-  if (isTestMode) {
+  if (currentMode === 'kanji-write') {
+    checkKanjiWrite();
+  } else if (isTestMode) {
     checkTestAnswer();
   } else {
     checkPracticeAnswer(ratio);
@@ -776,10 +927,17 @@ function showResult(emoji, title, msg, success) {
   if (success) {
     document.getElementById('resultBtn').onclick = () => {
       closeResult();
+      // Kanji read test: auto-advance (no canvas to show)
+      if (currentMode === 'kanji-read') {
+        nextQuestion();
+        return;
+      }
       document.getElementById('checkBtn').style.display = 'none';
       document.getElementById('hintBtn').style.display = 'none';
       document.getElementById('skipBtn').style.display = 'none';
       document.getElementById('nextBtn').style.display = '';
+      // Kanji write test: user's drawing stays; don't overlay any guide
+      if (currentMode === 'kanji-write') return;
       const q = currentChars[currentCharIdx];
       if (q.type === 'word') drawWordGuide(q.char, 0.15);
       else drawGuide(q.char, 0.15);
@@ -848,11 +1006,17 @@ function showTestResult() {
 }
 
 function retryTest() {
-  if (lastTestConfig) startTest(lastTestConfig);
+  if (!lastTestConfig) return;
+  if (lastTestConfig === 'kanji-read' || lastTestConfig === 'kanji-write') {
+    startKanjiTest(lastTestConfig);
+  } else {
+    startTest(lastTestConfig);
+  }
 }
 
 function exitGame() {
-  if (isTestMode) openTestSelect();
+  if (currentMode === 'kanji-read' || currentMode === 'kanji-write') showScreen('kanjiTestSelect');
+  else if (isTestMode) openTestSelect();
   else openPractice();
 }
 
