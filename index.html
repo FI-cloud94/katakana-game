@@ -108,10 +108,19 @@ html,body{width:100%;height:100%;overflow:hidden;font-family:'Hiragino Sans','Hi
 .bounce-in{animation:bounceIn .5s ease-out}
 .confetti-particle{position:fixed;width:10px;height:10px;border-radius:50%;z-index:200;animation:confetti 1.5s ease-out forwards;pointer-events:none}
 
-/* Kanji Choices */
-.kanji-choices{display:grid;grid-template-columns:1fr 1fr;gap:12px;width:min(90vw,420px);margin:16px auto 0}
-.kanji-choice-btn{padding:22px 16px;border:3px solid #667eea;border-radius:16px;font-size:26px;font-weight:700;cursor:pointer;background:#fff;color:#333;box-shadow:0 3px 10px rgba(0,0,0,.1);transition:transform .12s,background .15s}
-.kanji-choice-btn:active{transform:scale(.94);background:#667eea;color:#fff}
+/* Kanji Sentence (縦書き) */
+.kanji-sentence-area{display:none;justify-content:center;align-items:flex-start;width:100%;margin:8px auto 0;flex:1;padding:8px}
+.kanji-sentence-area.active{display:flex}
+.vcol{display:flex;flex-direction:column;align-items:center;gap:8px;padding:22px 56px;background:#fff;border-radius:20px;box-shadow:0 4px 20px rgba(0,0,0,.08);min-height:280px}
+.vchar{font-size:42px;font-family:'Hiragino Mincho ProN','YuMincho','Yu Mincho',serif;line-height:1.15;color:#333;position:relative;text-align:center}
+.vchar.target{color:#e74c3c;font-weight:700}
+.vchar .ruby{position:absolute;left:100%;top:50%;transform:translateY(-50%);display:flex;flex-direction:column;align-items:center;gap:2px;font-size:22px;color:#555;margin-left:10px;line-height:1.1;font-weight:600;font-family:'Hiragino Sans',sans-serif}
+.vslot{width:110px;height:110px;border:3px dashed #667eea;border-radius:14px;background:#fafcff;position:relative;margin:4px 0;flex-shrink:0}
+.vslot canvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none;border-radius:12px}
+.vslot .slot-side{position:absolute;left:100%;top:50%;transform:translateY(-50%);margin-left:14px;display:flex;flex-direction:row;align-items:flex-start;gap:10px}
+.vslot .slot-side .col{display:flex;flex-direction:column;align-items:center;gap:2px;line-height:1.1}
+.vslot .slot-side .furigana{font-size:24px;color:#666;font-family:'Hiragino Sans',sans-serif;font-weight:600}
+.vslot .slot-side .answer{font-size:56px;color:#e74c3c;font-weight:700;font-family:'Hiragino Mincho ProN','YuMincho',serif;line-height:1}
 </style>
 </head>
 <body>
@@ -169,9 +178,11 @@ html,body{width:100%;height:100%;overflow:hidden;font-family:'Hiragino Sans','Hi
     <canvas class="canvas-guide" id="guideCanvas"></canvas>
     <canvas id="drawCanvas"></canvas>
   </div>
-  <div class="kanji-choices" id="kanjiChoices" style="display:none"></div>
+  <div class="kanji-sentence-area" id="kanjiSentenceArea">
+    <div class="vcol" id="kanjiVcol"></div>
+  </div>
   <div class="game-buttons" id="gameButtons">
-    <button class="game-btn btn-clear" onclick="clearCanvas()">けす</button>
+    <button class="game-btn btn-clear" id="clearBtn" onclick="clearCanvas()">けす</button>
     <button class="game-btn btn-hint" id="hintBtn" onclick="showHint()">ヒント</button>
     <button class="game-btn btn-check" id="checkBtn" onclick="checkAnswer()">できた！</button>
     <button class="game-btn btn-next" id="nextBtn" onclick="nextQuestion()" style="display:none">つぎへ →</button>
@@ -238,24 +249,88 @@ const WORD_LEVELS = [
 
 const ALL_KATAKANA = KATAKANA_GROUPS.flatMap(g => g.chars);
 
-// 1年生 常用漢字 80字
-const KANJI_DATA = [
-  {k:'一',r:'いち'},{k:'二',r:'に'},{k:'三',r:'さん'},{k:'四',r:'し'},{k:'五',r:'ご'},
-  {k:'六',r:'ろく'},{k:'七',r:'しち'},{k:'八',r:'はち'},{k:'九',r:'きゅう'},{k:'十',r:'じゅう'},
-  {k:'百',r:'ひゃく'},{k:'千',r:'せん'},{k:'上',r:'うえ'},{k:'下',r:'した'},{k:'左',r:'ひだり'},
-  {k:'右',r:'みぎ'},{k:'中',r:'なか'},{k:'大',r:'だい'},{k:'小',r:'しょう'},{k:'月',r:'つき'},
-  {k:'日',r:'ひ'},{k:'年',r:'ねん'},{k:'早',r:'はや'},{k:'木',r:'き'},{k:'林',r:'はやし'},
-  {k:'森',r:'もり'},{k:'山',r:'やま'},{k:'川',r:'かわ'},{k:'土',r:'つち'},{k:'空',r:'そら'},
-  {k:'田',r:'た'},{k:'天',r:'てん'},{k:'生',r:'せい'},{k:'花',r:'はな'},{k:'草',r:'くさ'},
-  {k:'虫',r:'むし'},{k:'犬',r:'いぬ'},{k:'人',r:'ひと'},{k:'名',r:'な'},{k:'女',r:'おんな'},
-  {k:'男',r:'おとこ'},{k:'子',r:'こ'},{k:'目',r:'め'},{k:'耳',r:'みみ'},{k:'口',r:'くち'},
-  {k:'手',r:'て'},{k:'足',r:'あし'},{k:'見',r:'みる'},{k:'音',r:'おと'},{k:'力',r:'ちから'},
-  {k:'気',r:'き'},{k:'円',r:'えん'},{k:'入',r:'はいる'},{k:'出',r:'でる'},{k:'立',r:'たつ'},
-  {k:'休',r:'やすむ'},{k:'先',r:'さき'},{k:'夕',r:'ゆう'},{k:'本',r:'ほん'},{k:'文',r:'ぶん'},
-  {k:'字',r:'じ'},{k:'学',r:'がく'},{k:'校',r:'こう'},{k:'村',r:'むら'},{k:'町',r:'まち'},
-  {k:'正',r:'ただ'},{k:'水',r:'みず'},{k:'火',r:'ひ'},{k:'玉',r:'たま'},{k:'王',r:'おう'},
-  {k:'石',r:'いし'},{k:'竹',r:'たけ'},{k:'糸',r:'いと'},{k:'貝',r:'かい'},{k:'車',r:'くるま'},
-  {k:'金',r:'かね'},{k:'雨',r:'あめ'},{k:'赤',r:'あか'},{k:'青',r:'あお'},{k:'白',r:'しろ'},
+// 1年生 常用漢字 80字（例文つき／pre+k+post）
+const KANJI_EXAMPLES = [
+  {k:'一',r:'いち',  pre:'',        post:'ねんせい'},
+  {k:'二',r:'に',    pre:'',        post:'かい'},
+  {k:'三',r:'さん',  pre:'',        post:'がつ'},
+  {k:'四',r:'し',    pre:'',        post:'がつ'},
+  {k:'五',r:'ご',    pre:'',        post:'ひき'},
+  {k:'六',r:'ろく',  pre:'',        post:'がつ'},
+  {k:'七',r:'しち',  pre:'',        post:'さい'},
+  {k:'八',r:'はち',  pre:'',        post:'じ'},
+  {k:'九',r:'きゅう',pre:'',        post:'さい'},
+  {k:'十',r:'じゅう',pre:'',        post:'えん'},
+  {k:'百',r:'ひゃく',pre:'',        post:'えん'},
+  {k:'千',r:'せん',  pre:'',        post:'えん'},
+  {k:'上',r:'うえ',  pre:'やまの',  post:''},
+  {k:'下',r:'した',  pre:'きの',    post:''},
+  {k:'左',r:'ひだり',pre:'',        post:'のて'},
+  {k:'右',r:'みぎ',  pre:'',        post:'のて'},
+  {k:'中',r:'なか',  pre:'はこの',  post:''},
+  {k:'大',r:'おお',  pre:'',        post:'きなこえ'},
+  {k:'小',r:'ちい',  pre:'',        post:'さなはな'},
+  {k:'月',r:'つき',  pre:'',        post:'がでる'},
+  {k:'日',r:'ひ',    pre:'',        post:'がのぼる'},
+  {k:'年',r:'ねん',  pre:'らい',    post:''},
+  {k:'早',r:'はや',  pre:'',        post:'くおきる'},
+  {k:'木',r:'き',    pre:'',        post:'のえだ'},
+  {k:'林',r:'はやし',pre:'',        post:'のみち'},
+  {k:'森',r:'もり',  pre:'',        post:'のなか'},
+  {k:'山',r:'やま',  pre:'',        post:'にのぼる'},
+  {k:'川',r:'かわ',  pre:'',        post:'であそぶ'},
+  {k:'土',r:'つち',  pre:'',        post:'をほる'},
+  {k:'空',r:'そら',  pre:'あおい',  post:''},
+  {k:'田',r:'た',    pre:'',        post:'んぼ'},
+  {k:'天',r:'てん',  pre:'',        post:'のがわ'},
+  {k:'生',r:'い',    pre:'',        post:'きもの'},
+  {k:'花',r:'はな',  pre:'はるの',  post:''},
+  {k:'草',r:'くさ',  pre:'',        post:'のうえ'},
+  {k:'虫',r:'むし',  pre:'',        post:'のこえ'},
+  {k:'犬',r:'いぬ',  pre:'',        post:'がはしる'},
+  {k:'人',r:'ひと',  pre:'',        post:'がおおい'},
+  {k:'名',r:'な',    pre:'',        post:'まえ'},
+  {k:'女',r:'おんな',pre:'',        post:'のひと'},
+  {k:'男',r:'おとこ',pre:'',        post:'のひと'},
+  {k:'子',r:'こ',    pre:'おんなの',post:''},
+  {k:'目',r:'め',    pre:'',        post:'をあける'},
+  {k:'耳',r:'みみ',  pre:'',        post:'をすます'},
+  {k:'口',r:'くち',  pre:'',        post:'をあける'},
+  {k:'手',r:'て',    pre:'',        post:'をあらう'},
+  {k:'足',r:'あし',  pre:'',        post:'がはやい'},
+  {k:'見',r:'み',    pre:'よく',    post:'る'},
+  {k:'音',r:'おと',  pre:'ピアノの',post:''},
+  {k:'力',r:'ちから',pre:'',        post:'もち'},
+  {k:'気',r:'き',    pre:'',        post:'をつける'},
+  {k:'円',r:'えん',  pre:'',        post:'をかく'},
+  {k:'入',r:'い',    pre:'',        post:'りぐち'},
+  {k:'出',r:'で',    pre:'',        post:'かける'},
+  {k:'立',r:'た',    pre:'',        post:'ちあがる'},
+  {k:'休',r:'やす',  pre:'お',      post:'み'},
+  {k:'先',r:'さき',  pre:'',        post:'にいく'},
+  {k:'夕',r:'ゆう',  pre:'',        post:'がた'},
+  {k:'本',r:'ほん',  pre:'',        post:'をよむ'},
+  {k:'文',r:'ぶん',  pre:'',        post:'をよむ'},
+  {k:'字',r:'じ',    pre:'',        post:'をかく'},
+  {k:'学',r:'まな',  pre:'',        post:'ぶ'},
+  {k:'校',r:'こう',  pre:'',        post:'ていであそぶ'},
+  {k:'村',r:'むら',  pre:'',        post:'にすむ'},
+  {k:'町',r:'まち',  pre:'',        post:'をあるく'},
+  {k:'正',r:'ただ',  pre:'',        post:'しいこたえ'},
+  {k:'水',r:'みず',  pre:'',        post:'をのむ'},
+  {k:'火',r:'ひ',    pre:'',        post:'をつける'},
+  {k:'玉',r:'たま',  pre:'',        post:'ねぎ'},
+  {k:'王',r:'おう',  pre:'',        post:'さま'},
+  {k:'石',r:'いし',  pre:'',        post:'をなげる'},
+  {k:'竹',r:'たけ',  pre:'',        post:'とんぼ'},
+  {k:'糸',r:'いと',  pre:'あかい',  post:''},
+  {k:'貝',r:'かい',  pre:'',        post:'をひろう'},
+  {k:'車',r:'くるま',pre:'',        post:'がはしる'},
+  {k:'金',r:'かね',  pre:'お',      post:''},
+  {k:'雨',r:'あめ',  pre:'',        post:'がふる'},
+  {k:'赤',r:'あか',  pre:'',        post:'いはな'},
+  {k:'青',r:'あお',  pre:'',        post:'いそら'},
+  {k:'白',r:'しろ',  pre:'',        post:'いくも'},
 ];
 
 // ===== State =====
@@ -397,82 +472,145 @@ function startTest(type) {
 }
 
 // ===== Kanji Test =====
+let kanjiAnswerShown = false;
+let slotCanvas = null, slotCtx = null, slotDrawing = false, slotLastX = 0, slotLastY = 0;
+
 function openKanjiTest() {
   showScreen('kanjiTestSelect');
 }
 
 function startKanjiTest(type) {
   testType = type;
-  isTestMode = true;
+  isTestMode = false; // 判定なしなのでテストスコア表示も不要
   testCorrect = 0;
   testWrong = [];
   currentCharIdx = 0;
   lastTestConfig = type;
   currentMode = type;
-  const pool = KANJI_DATA.slice();
+  kanjiAnswerShown = false;
+  const pool = KANJI_EXAMPLES.slice();
   shuffle(pool);
-  currentChars = pool.slice(0, 20).map(d => ({ char: d.k, reading: d.r, type: type }));
+  currentChars = pool.slice(0, 20).map(d => ({
+    char: d.k, reading: d.r, pre: d.pre, post: d.post, type: type
+  }));
   showScreen('game');
   document.getElementById('canvasArea').classList.remove('word-mode');
-  setTimeout(() => {
-    if (type === 'kanji-write') initCanvas();
-    loadQuestion();
-  }, 50);
+  setTimeout(() => { loadQuestion(); }, 50);
 }
 
-function renderKanjiChoices(q) {
-  const container = document.getElementById('kanjiChoices');
-  container.innerHTML = '';
-  const others = [...new Set(KANJI_DATA.filter(d => d.r !== q.reading).map(d => d.r))];
-  shuffle(others);
-  const choices = [q.reading, ...others.slice(0, 3)];
-  shuffle(choices);
-  choices.forEach(reading => {
-    const btn = document.createElement('button');
-    btn.className = 'kanji-choice-btn';
-    btn.textContent = reading;
-    btn.onclick = () => checkKanjiRead(reading, q);
-    container.appendChild(btn);
-  });
-}
-
-function checkKanjiRead(chosen, q) {
-  if (chosen === q.reading) {
-    testCorrect++;
-    showResult('⭕', 'せいかい！', `${q.char} → ${q.reading}`, true);
-    spawnConfetti();
+// 例文（縦書き）を描画。showAnswer=true で正解も表示
+function renderKanjiSentence(q, mode) {
+  const vcol = document.getElementById('kanjiVcol');
+  vcol.innerHTML = '';
+  for (const ch of q.pre) {
+    const d = document.createElement('div');
+    d.className = 'vchar';
+    d.textContent = ch;
+    vcol.appendChild(d);
+  }
+  if (mode === 'kanji-read') {
+    const d = document.createElement('div');
+    d.className = 'vchar target';
+    d.textContent = q.char;
+    vcol.appendChild(d);
   } else {
-    testWrong.push(q);
-    showResult('❌', 'ざんねん…', `${q.char} は「${q.reading}」`, true);
+    const slot = document.createElement('div');
+    slot.className = 'vslot';
+    const cv = document.createElement('canvas');
+    slot.appendChild(cv);
+    // ⬜の横にふりがな（常に縦書き）と、後から出す正解用の列を用意
+    const side = document.createElement('div');
+    side.className = 'slot-side';
+    const fgCol = document.createElement('div');
+    fgCol.className = 'col furigana';
+    for (const ch of q.reading) {
+      const d = document.createElement('div');
+      d.textContent = ch;
+      fgCol.appendChild(d);
+    }
+    side.appendChild(fgCol);
+    slot.appendChild(side);
+    vcol.appendChild(slot);
+  }
+  for (const ch of q.post) {
+    const d = document.createElement('div');
+    d.className = 'vchar';
+    d.textContent = ch;
+    vcol.appendChild(d);
   }
 }
 
-function checkKanjiWrite() {
-  const q = currentChars[currentCharIdx];
-  const result = recognizeKanji();
-  const rank = result.findIndex(r => r.char === q.char);
-  const topCorr = result[0] ? result[0].corr : 0;
-  if (rank >= 0 && rank <= 2 && topCorr >= 0.15) {
-    testCorrect++;
-    showResult('⭕', 'せいかい！', `${q.char}（${q.reading}）`, true);
-    spawnConfetti();
+// 正解を漢字の横に表示（ユーザーの書き込みはそのまま残る）
+function revealKanjiAnswer(q, mode) {
+  if (mode === 'kanji-read') {
+    const target = document.querySelector('#kanjiVcol .vchar.target');
+    if (target && !target.querySelector('.ruby')) {
+      const rb = document.createElement('div');
+      rb.className = 'ruby';
+      for (const ch of q.reading) {
+        const d = document.createElement('div');
+        d.textContent = ch;
+        rb.appendChild(d);
+      }
+      target.appendChild(rb);
+    }
   } else {
-    testWrong.push(q);
-    const guessed = result[0] ? result[0].char : '?';
-    showResult('❌', 'ざんねん…', `こたえは「${q.char}」\n（「${guessed}」に みえたよ）`, true);
+    const side = document.querySelector('#kanjiVcol .vslot .slot-side');
+    if (side && !side.querySelector('.answer')) {
+      const ansCol = document.createElement('div');
+      ansCol.className = 'col answer';
+      const d = document.createElement('div');
+      d.textContent = q.char;
+      ansCol.appendChild(d);
+      side.appendChild(ansCol);
+    }
   }
 }
 
-function recognizeKanji() {
-  const drawBM = getDrawingBitmap(RECOG_SIZE);
-  const drawInk = drawBM.reduce((a,b) => a+b, 0);
-  if (drawInk < RECOG_SIZE * 0.3) return [];
-  const scores = KANJI_DATA.map(d => {
-    const refBM = getCharBitmap(d.k, 'char');
-    return { char: d.k, corr: pearsonCorr(refBM, drawBM) };
-  });
-  scores.sort((a,b) => b.corr - a.corr);
-  return scores;
+// インラインの⬜キャンバスに描画するための簡易ドローイング
+function initSlotCanvas() {
+  slotCanvas = document.querySelector('#kanjiVcol .vslot canvas');
+  if (!slotCanvas) return;
+  const rect = slotCanvas.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  slotCanvas.width = Math.max(1, Math.round(rect.width * dpr));
+  slotCanvas.height = Math.max(1, Math.round(rect.height * dpr));
+  slotCtx = slotCanvas.getContext('2d');
+  slotCtx.scale(dpr, dpr);
+  slotCtx.lineCap = 'round';
+  slotCtx.lineJoin = 'round';
+  slotCtx.lineWidth = 5;
+  slotCtx.strokeStyle = '#333';
+  slotCanvas.onpointerdown = slotPointerDown;
+  slotCanvas.onpointermove = slotPointerMove;
+  slotCanvas.onpointerup = slotCanvas.onpointercancel = slotPointerUp;
+}
+function slotGetPos(e) {
+  const r = slotCanvas.getBoundingClientRect();
+  return { x: e.clientX - r.left, y: e.clientY - r.top };
+}
+function slotPointerDown(e) {
+  e.preventDefault();
+  slotDrawing = true;
+  const p = slotGetPos(e);
+  slotLastX = p.x; slotLastY = p.y;
+  if (e.pressure > 0) slotCtx.lineWidth = Math.max(3, Math.min(10, e.pressure * 10));
+}
+function slotPointerMove(e) {
+  if (!slotDrawing) return;
+  e.preventDefault();
+  const p = slotGetPos(e);
+  if (e.pressure > 0) slotCtx.lineWidth = Math.max(3, Math.min(10, e.pressure * 10));
+  slotCtx.beginPath();
+  slotCtx.moveTo(slotLastX, slotLastY);
+  slotCtx.lineTo(p.x, p.y);
+  slotCtx.stroke();
+  slotLastX = p.x; slotLastY = p.y;
+}
+function slotPointerUp() { slotDrawing = false; }
+function clearSlotCanvas() {
+  if (!slotCtx || !slotCanvas) return;
+  slotCtx.clearRect(0, 0, slotCanvas.width, slotCanvas.height);
 }
 
 function shuffle(arr) {
@@ -547,6 +685,10 @@ function onPointerUp() {
   currentStroke = [];
 }
 function clearCanvas() {
+  if (currentMode === 'kanji-write') {
+    clearSlotCanvas();
+    return;
+  }
   drawCtx.clearRect(0, 0, canvasW, canvasH); strokes = []; currentStroke = [];
 }
 
@@ -598,7 +740,7 @@ function loadQuestion() {
   // Reset layout visibility
   document.getElementById('canvasArea').style.display = '';
   document.getElementById('gameButtons').style.display = '';
-  document.getElementById('kanjiChoices').style.display = 'none';
+  document.getElementById('kanjiSentenceArea').classList.remove('active');
 
   // Stars vs Test score display
   const starsEl = document.getElementById('starsDisplay');
@@ -623,30 +765,29 @@ function loadQuestion() {
   const isWord = q.type === 'word';
   document.getElementById('canvasArea').classList.toggle('word-mode', isWord);
 
-  // Kanji reading test: show multiple choice, hide canvas
-  if (currentMode === 'kanji-read') {
-    document.getElementById('gamePrompt').textContent = 'よみかたは どれ？';
-    document.getElementById('gameTarget').textContent = q.char;
+  // Kanji reading / writing test: 例文を縦書き表示
+  if (currentMode === 'kanji-read' || currentMode === 'kanji-write') {
+    kanjiAnswerShown = false;
+    document.getElementById('gamePrompt').textContent =
+      currentMode === 'kanji-read'
+        ? 'よみかたを かんがえよう'
+        : '⬜に かんじを かこう';
+    document.getElementById('gameTarget').textContent = '';
     document.getElementById('gameTarget').className = 'game-target';
     document.getElementById('gameReading').textContent = '';
     document.getElementById('canvasArea').style.display = 'none';
-    document.getElementById('gameButtons').style.display = 'none';
-    document.getElementById('kanjiChoices').style.display = '';
-    renderKanjiChoices(q);
-    return;
-  }
-
-  // Kanji writing test: show reading as prompt, use canvas
-  if (currentMode === 'kanji-write') {
-    document.getElementById('gamePrompt').textContent = 'かんじで かこう！';
-    document.getElementById('gameTarget').textContent = q.reading;
-    document.getElementById('gameTarget').className = 'game-target';
-    document.getElementById('gameReading').textContent = '';
+    document.getElementById('kanjiSentenceArea').classList.add('active');
+    renderKanjiSentence(q, currentMode);
+    // ボタン: つぎへだけ表示（書きテストはけすも）
+    document.getElementById('checkBtn').style.display = 'none';
     document.getElementById('hintBtn').style.display = 'none';
-    setTimeout(() => {
-      initCanvas();
-      setTimeout(() => drawGuide('', 0), 20);
-    }, 10);
+    document.getElementById('skipBtn').style.display = 'none';
+    document.getElementById('clearBtn').style.display = (currentMode === 'kanji-write') ? '' : 'none';
+    document.getElementById('nextBtn').style.display = '';
+    document.getElementById('nextBtn').textContent = 'つぎへ →';
+    if (currentMode === 'kanji-write') {
+      setTimeout(() => initSlotCanvas(), 30);
+    }
     return;
   }
 
@@ -694,6 +835,8 @@ function showHint() {
 
 // ===== Check Answer =====
 function checkAnswer() {
+  // 漢字モードは判定しない
+  if (currentMode === 'kanji-read' || currentMode === 'kanji-write') return;
   const dpr = window.devicePixelRatio || 1;
   const pixels = drawCtx.getImageData(0, 0, canvasW*dpr, canvasH*dpr).data;
   let filled = 0;
@@ -705,9 +848,7 @@ function checkAnswer() {
     return;
   }
 
-  if (currentMode === 'kanji-write') {
-    checkKanjiWrite();
-  } else if (isTestMode) {
+  if (isTestMode) {
     checkTestAnswer();
   } else {
     checkPracticeAnswer(ratio);
@@ -927,17 +1068,10 @@ function showResult(emoji, title, msg, success) {
   if (success) {
     document.getElementById('resultBtn').onclick = () => {
       closeResult();
-      // Kanji read test: auto-advance (no canvas to show)
-      if (currentMode === 'kanji-read') {
-        nextQuestion();
-        return;
-      }
       document.getElementById('checkBtn').style.display = 'none';
       document.getElementById('hintBtn').style.display = 'none';
       document.getElementById('skipBtn').style.display = 'none';
       document.getElementById('nextBtn').style.display = '';
-      // Kanji write test: user's drawing stays; don't overlay any guide
-      if (currentMode === 'kanji-write') return;
       const q = currentChars[currentCharIdx];
       if (q.type === 'word') drawWordGuide(q.char, 0.15);
       else drawGuide(q.char, 0.15);
@@ -965,6 +1099,24 @@ function spawnConfetti() {
 
 // ===== Next / Complete =====
 function nextQuestion() {
+  // 漢字モード: 1回目=答え表示、2回目=次の問題
+  if (currentMode === 'kanji-read' || currentMode === 'kanji-write') {
+    if (!kanjiAnswerShown) {
+      kanjiAnswerShown = true;
+      revealKanjiAnswer(currentChars[currentCharIdx], currentMode);
+      // 答え表示後は けすボタンを隠す
+      document.getElementById('clearBtn').style.display = 'none';
+      return;
+    }
+    // 2回目: 次の問題へ
+    currentCharIdx++;
+    if (currentCharIdx >= currentChars.length) {
+      showKanjiComplete();
+      return;
+    }
+    loadQuestion();
+    return;
+  }
   currentCharIdx++;
   if (currentCharIdx >= currentChars.length) {
     if (isTestMode) showTestResult();
@@ -974,7 +1126,17 @@ function nextQuestion() {
   loadQuestion();
 }
 
+function showKanjiComplete() {
+  document.getElementById('finalStars').textContent = '✏️';
+  document.getElementById('finalMsg').textContent = '20もん ぜんぶ おわったよ！\nおつかれさま！';
+  const h2 = document.querySelector('#complete h2');
+  if (h2) h2.textContent = 'おつかれさま！';
+  showScreen('complete');
+}
+
 function showPracticeComplete() {
+  const h2 = document.querySelector('#complete h2');
+  if (h2) h2.textContent = 'すごい！クリア！';
   document.getElementById('finalStars').textContent = '⭐'.repeat(Math.min(totalStars, 20));
   const max = currentChars.length * 3;
   const pct = Math.round(totalStars / max * 100);
